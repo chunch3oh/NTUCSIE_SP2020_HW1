@@ -90,8 +90,8 @@ int main(int argc, char** argv) {
     file_fd=open("preorderRecord",O_RDWR);
     if(file_fd<0)
         fprintf(stderr,"no suchfile name");
-    int read_lock[20]={0};
-    bool write_lock[20]={false};
+    int read_lock[21]={0};
+    bool write_lock[21]={false};
     // Loop for handling connections
     fprintf(stderr, "\nstarting on %.80s, port %d, fd %d, maxconn %d...\n", svr.hostname, svr.port, svr.listen_fd, maxfd);
     fcntl(svr.listen_fd,F_SETFL,O_NONBLOCK);
@@ -113,7 +113,7 @@ int main(int argc, char** argv) {
                 }
                 ERR_EXIT("accept");
             }
-            char str[50];
+            char str[80];
             sprintf(str,"Please enter the id (to check how many masks can be ordered):\n");
             write(conn_fd, str, strlen(str));
             FD_SET(conn_fd,&original_set);
@@ -144,9 +144,9 @@ int main(int argc, char** argv) {
 #ifdef READ_SERVER
         Order order;
         order.id=atoi(requestP[conn_fd].buf);
-        requestP[conn_fd].id=order.id-902001;
+        requestP[conn_fd].id=order.id-902000;
         lock.l_type=F_RDLCK;
-        lock.l_start=sizeof(Order)*(requestP[conn_fd].id);
+        lock.l_start=sizeof(Order)*(requestP[conn_fd].id-1);
         lock.l_whence=SEEK_SET;
         lock.l_len=sizeof(Order);
         lock.l_pid=getpid();
@@ -158,20 +158,20 @@ int main(int argc, char** argv) {
             sprintf(buf,"You can order %d adult mask(s) and %d children mask(s).\n",order.adultMask,order.childrenMask);
             write(requestP[conn_fd].conn_fd, buf, strlen(buf));
             lock.l_type=F_UNLCK;
-            lock.l_start=sizeof(Order)*(requestP[conn_fd].id);
+            lock.l_start=sizeof(Order)*(requestP[conn_fd].id-1);
             lock.l_whence=SEEK_SET;
             lock.l_len=sizeof(Order);
             fcntl(file_fd,F_SETLK,&lock);
             --read_lock[requestP[conn_fd].id];
         }
-	else if(order.id>902020||order.id<902001)
-	{
-		sprintf(buf,"Operation failed.\n");
-		write(requestP[conn_fd].conn_fd, buf, strlen(buf));
-	}
-	else
+        else if((write_lock[requestP[conn_fd].id]||fcntl(file_fd,F_SETLK,&lock)==-1)&&order.id>=902001&&order.id<=902020)
         {
             sprintf(buf,"Locked.\n");
+            write(requestP[conn_fd].conn_fd, buf, strlen(buf));
+        }
+        else
+        {
+            sprintf(buf,"Operation failed.\n");
             write(requestP[conn_fd].conn_fd, buf, strlen(buf));
         }
 #else
@@ -180,28 +180,28 @@ int main(int argc, char** argv) {
         {
             order.id=atoi(requestP[conn_fd].buf);
             requestP[conn_fd].id=order.id-902000;
-            lock.l_type=F_RDLCK;
+            lock.l_type=F_WRLCK;
             lock.l_start=sizeof(Order)*(requestP[conn_fd].id-1);
             lock.l_whence=SEEK_SET;
             lock.l_len=sizeof(Order);
             lock.l_pid=getpid();
-            if(!write_lock[requestP[conn_fd].id-1]&&read_lock[requestP[conn_fd].id-1]==0&&fcntl(file_fd,F_SETLK,&lock)!=-1&&order.id>=902001&&order.id<=902020)
+            if(!write_lock[requestP[conn_fd].id]&&read_lock[requestP[conn_fd].id]==0&&fcntl(file_fd,F_SETLK,&lock)!=-1&&order.id>=902001&&order.id<=902020)
             {
-                write_lock[requestP[conn_fd].id-1]=true;
+                write_lock[requestP[conn_fd].id]=true;
                 lseek(file_fd,sizeof(Order)*(requestP[conn_fd].id-1),SEEK_SET);
                 read(file_fd,&order,sizeof(Order));
                 sprintf(buf,"You can order %d adult mask(s) and %d children mask(s).\nPlease enter the mask type (adult or children) and number of mask you would like to order:\n",order.adultMask,order.childrenMask);
                 write(requestP[conn_fd].conn_fd, buf, strlen(buf));
                 continue;
             }
-            else if(order.id>902020||order.id<902001)
+            else if((write_lock[requestP[conn_fd].id]||fcntl(file_fd,F_SETLK,&lock)==-1||read_lock[requestP[conn_fd].id]>0)&&order.id>=902001&&order.id<=902020)
             {
-                sprintf(buf,"Operation failed.\n");
+                sprintf(buf,"Locked.\n");
                 write(requestP[conn_fd].conn_fd, buf, strlen(buf));
             }
             else
             {
-                sprintf(buf,"Locked.");
+                sprintf(buf,"Operation failed.\n");
                 write(requestP[conn_fd].conn_fd, buf, strlen(buf));
             }
         }
@@ -209,8 +209,7 @@ int main(int argc, char** argv) {
         {
             char type[10],num[10];
             int number_of_order;
-            sscanf(requestP[conn_fd].buf,"%s %s",&type,&num);
-            fprintf(stderr, "%s %s\n", type, num);
+            sscanf(requestP[conn_fd].buf,"%s %s",type,num);
             number_of_order=atoi(num);
             if(!strncmp(type,"adult",5))
             {
@@ -253,13 +252,12 @@ int main(int argc, char** argv) {
                     sprintf(buf,"Operation failed.\n");
                     write(requestP[conn_fd].conn_fd, buf, strlen(buf));
                 }
-            fprintf(stderr,"%c",requestP[conn_fd].buf[0]);
             lock.l_type=F_UNLCK;
             lock.l_start=sizeof(Order)*(requestP[conn_fd].id-1);
             lock.l_whence=SEEK_SET;
             lock.l_len=sizeof(Order);
             fcntl(file_fd,F_SETLK,&lock);
-            write_lock[requestP[conn_fd].id-1]=false;
+            write_lock[requestP[conn_fd].id]=false;
         }
 
 #endif
