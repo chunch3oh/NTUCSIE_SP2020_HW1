@@ -134,7 +134,7 @@ int main(int argc, char** argv) {
         requestP[conn_fd].conn_fd = conn_fd;
         strcpy(requestP[conn_fd].host, inet_ntoa(cliaddr.sin_addr));
         fprintf(stderr, "getting a new request... fd %d from %s\n", conn_fd, requestP[conn_fd].host);
-        int ret = handle_read(&requestP[conn_fd]); // parse data from client to requestP[conn_fd].buf
+        int ret = handle_read(&requestP[conn_fd]); // parse data from client to requestP[conn_fd].bufi
         if (ret < 0) {
             fprintf(stderr, "bad request from %s\n", requestP[conn_fd].host);
             continue;
@@ -143,17 +143,25 @@ int main(int argc, char** argv) {
     // TODO: handle requests from clients
 #ifdef READ_SERVER
         Order order;
-        order.id=atoi(requestP[conn_fd].buf);
-        requestP[conn_fd].id=order.id-902000;
+        sscanf(requestP[conn_fd].buf, "%d",&order.id);
+        if(order.id < 902001 || order.id > 902020)
+        {
+            sprintf(buf,"Operation failed.\n");
+            write(requestP[conn_fd].conn_fd, buf, strlen(buf));
+            close(requestP[conn_fd].conn_fd);
+            free_request(&requestP[conn_fd]);
+            FD_CLR(conn_fd,&original_set);
+        }
+        requestP[conn_fd].id=atoi(requestP[conn_fd].buf)-902000;
         lock.l_type=F_RDLCK;
         lock.l_start=sizeof(Order)*(requestP[conn_fd].id-1);
         lock.l_whence=SEEK_SET;
         lock.l_len=sizeof(Order);
         lock.l_pid=getpid();
-        if(!write_lock[requestP[conn_fd].id]&&order.id>=902001&&order.id<=902020&&fcntl(file_fd,F_SETLK,&lock)!=-1)
+        if(!write_lock[requestP[conn_fd].id]&&fcntl(file_fd,F_SETLK,&lock)!=-1)
         {
             ++read_lock[requestP[conn_fd].id];
-            lseek(file_fd,sizeof(Order)*(requestP[conn_fd].id),SEEK_SET);
+            lseek(file_fd,sizeof(Order)*(requestP[conn_fd].id-1),SEEK_SET);
             read(file_fd,&order,sizeof(Order));
             sprintf(buf,"You can order %d adult mask(s) and %d children mask(s).\n",order.adultMask,order.childrenMask);
             write(requestP[conn_fd].conn_fd, buf, strlen(buf));
@@ -164,7 +172,7 @@ int main(int argc, char** argv) {
             fcntl(file_fd,F_SETLK,&lock);
             --read_lock[requestP[conn_fd].id];
         }
-        else if((write_lock[requestP[conn_fd].id]||fcntl(file_fd,F_SETLK,&lock)==-1)&&order.id>=902001&&order.id<=902020)
+        else if(write_lock[requestP[conn_fd].id]||fcntl(file_fd,F_SETLK,&lock)==-1)
         {
             sprintf(buf,"Locked.\n");
             write(requestP[conn_fd].conn_fd, buf, strlen(buf));
@@ -178,14 +186,22 @@ int main(int argc, char** argv) {
         Order order;
         if(requestP[conn_fd].id==0)
         {
-            order.id=atoi(requestP[conn_fd].buf);
-            requestP[conn_fd].id=order.id-902000;
+            sscanf(requestP[conn_fd].buf, "%d",&order.id);
+            if(order.id < 902001 || order.id > 902020)
+            {
+                sprintf(buf,"Operation failed.\n");
+                write(requestP[conn_fd].conn_fd, buf, strlen(buf));
+                close(requestP[conn_fd].conn_fd);
+                free_request(&requestP[conn_fd]);
+                FD_CLR(conn_fd,&original_set);
+            }
+            requestP[conn_fd].id=atoi(requestP[conn_fd].buf)-902000;
             lock.l_type=F_WRLCK;
             lock.l_start=sizeof(Order)*(requestP[conn_fd].id-1);
             lock.l_whence=SEEK_SET;
             lock.l_len=sizeof(Order);
             lock.l_pid=getpid();
-            if(!write_lock[requestP[conn_fd].id]&&read_lock[requestP[conn_fd].id]==0&&fcntl(file_fd,F_SETLK,&lock)!=-1&&order.id>=902001&&order.id<=902020)
+            if(!write_lock[requestP[conn_fd].id]&&read_lock[requestP[conn_fd].id]==0&&fcntl(file_fd,F_SETLK,&lock)!=-1)
             {
                 write_lock[requestP[conn_fd].id]=true;
                 lseek(file_fd,sizeof(Order)*(requestP[conn_fd].id-1),SEEK_SET);
@@ -194,7 +210,7 @@ int main(int argc, char** argv) {
                 write(requestP[conn_fd].conn_fd, buf, strlen(buf));
                 continue;
             }
-            else if((write_lock[requestP[conn_fd].id]||fcntl(file_fd,F_SETLK,&lock)==-1||read_lock[requestP[conn_fd].id]>0)&&order.id>=902001&&order.id<=902020)
+            else if(write_lock[requestP[conn_fd].id]||fcntl(file_fd,F_SETLK,&lock)==-1||read_lock[requestP[conn_fd].id]>0)
             {
                 sprintf(buf,"Locked.\n");
                 write(requestP[conn_fd].conn_fd, buf, strlen(buf));
